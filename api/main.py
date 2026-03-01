@@ -7,9 +7,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import sys
+import hashlib
+import secrets
 
 # Vercel serverless environment
 vercel_env = os.environ.get('VERCEL', 'false') == 'true'
@@ -32,6 +34,76 @@ app.add_middleware(
 # Global variables for ML models (cached across invocations)
 fraud_model = None
 label_encoders = None
+
+# MongoDB connection
+from pymongo import MongoClient
+mongo_client = None
+db = None
+
+def get_db():
+    """Get MongoDB database connection"""
+    global mongo_client, db
+    if db is None:
+        mongo_uri = os.environ.get('MONGODB_URL', os.environ.get('MONGO_URI', ''))
+        if mongo_uri:
+            try:
+                mongo_client = MongoClient(mongo_uri)
+                db = mongo_client['scoreshield']
+                # Test connection
+                mongo_client.admin.command('ping')
+                print("Connected to MongoDB")
+            except Exception as e:
+                print(f"MongoDB connection error: {e}")
+                db = None
+    return db
+
+# JWT Secret for token generation
+JWT_SECRET = os.environ.get('JWT_SECRET', 'scoreshield-secret-key-change-in-production')
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+def create_access_token(data: dict):
+    """Create JWT access token"""
+    import base64
+    import json
+    import time
+    
+    payload = {
+        "sub": data.get("email", data.get("sub", "")),
+        "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        "iat": datetime.utcnow()
+    }
+    
+    # Simple base64 encoding for demo (use proper JWT in production)
+    token_data = json.dumps(payload)
+    encoded = base64.b64encode(token_data.encode()).decode()
+    return encoded
+
+def verify_token(token: str):
+    """Verify JWT token"""
+    import base64
+    import json
+    
+    try:
+        decoded = base64.b64decode(token.encode()).decode()
+        payload = json.loads(decoded)
+        
+        exp = payload.get("exp")
+        if exp:
+            exp_datetime = datetime.fromisoformat(exp.replace('Z', '+00:00'))
+            if exp_datetime < datetime.utcnow():
+                return None
+        
+        return payload
+    except:
+        return None
+
+def hash_password(password: str) -> str:
+    """Hash password using SHA256"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password against hash"""
+    return hash_password(plain_password) == hashed_password
 
 def load_models():
     """Lazy load ML models"""
@@ -319,17 +391,124 @@ async def get_platform_stats():
         raise HTTPException(status_code=500, detail=f"Failed to get platform stats: {str(e)}")
 
 # Auth routes
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+    role: str = "customer"
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 @app.post("/api/auth/register")
-async def register(request: dict):
+async def register(request: RegisterRequest):
     """User registration"""
-    # Simplified for Vercel - you can integrate with MongoDB or other services
-    return {"message": "Registration endpoint", "status": "coming soon"}
+    database = get_db()
+    
+    if database is None:
+        return {
+            "message": "MongoDB not connected. Please configure MONGODB_URL environment variable.",
+            "status": "error"
+        }
+    
+    try:
+        existing_user = database.users.find_one({"email": request.email})
+        if existing_user:
+            return {"message": "Email already registered", "status": "error"}
+        
+        new_user = {
+            "email": request.email,
+            "password_hash": hash_password(request.password),
+            "name": request.name,
+            "role": request.role,
+            "seller_id": None,
+            "is_active": True,
+            "created_at": datetime.utcnow()
+        }
+        
+        result = database.users.insert_one(new_user)
+        access_token = create_access_token({"email": request.email})
+        
+        return {
+            "message": "User registered successfully",
+            "status": "success",
+            "user_id": str(result.inserted_id),
+            "email": request.email,
+            "name": request.name,
+            "role": request.role,
+            "access_token": access_token,
+            "token_type": "bearer"
+        }
+    except Exception as e:
+        return {"message": f"Registration failed: {str(e)}", "status": "error"}
 
 @app.post("/api/auth/login")
-async def login(request: dict):
+async def login(request: LoginRequest):
     """User login"""
-    # Simplified for Vercel - you can integrate with MongoDB or other services
-    return {"message": "Login endpoint", "status": "coming soon"}
+    database = get_db()
+    
+    if database is None:
+        return {
+            "message": "MongoDB not connected. Please configure MONGODB_URL environment variable.",
+            "status": "error"
+        }
+    
+    try:
+        user = database.users.find_one({"email": request.email})
+        if not user:
+            return {"message": "Invalid email or password", "status": "error"}
+        
+        if not verify_password(request.password, user.get("password_hash", "")):
+            return {"message": "Invalid email or password", "status": "error"}
+        
+        if not user.get("is_active", True):
+            return {"message": "Account is disabled", "status": "error"}
+        
+        access_token = create_access_token({"email": request.email})
+        
+        return {
+            "message": "Login successful",
+            "status": "success",
+            "email": user["email"],
+            "name": user.get("name", ""),
+            "role": user.get("role", "customer"),
+            "access_token": access_token,
+            "token_type": "bearer"
+        }
+    except Exception as e:
+        return {"message": f"Login failed: {str(e)}", "status": "error"}
+
+@app.get("/api/auth/me")
+async def get_me(authorization: str = None):
+    """Get current user information"""
+    if not authorization:
+        return {"message": "No token provided", "status": "error"}
+    
+    if authorization.startswith("Bearer "):
+        token = authorization[7:]
+    else:
+        token = authorization
+    
+    payload = verify_token(token)
+    if payload is None:
+        return {"message": "Invalid or expired token", "status": "error"}
+    
+    database = get_db()
+    if database is None:
+        return {"message": "Database not connected", "status": "error"}
+    
+    user = database.users.find_one({"email": payload.get("sub")})
+    if not user:
+        return {"message": "User not found", "status": "error"}
+    
+    return {
+        "email": user["email"],
+        "name": user.get("name", ""),
+        "role": user.get("role", "customer"),
+        "seller_id": user.get("seller_id"),
+        "status": "success"
+    }
 
 # Vercel handler
 if __name__ == "__main__":

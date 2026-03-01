@@ -1,5 +1,11 @@
 {
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/main.py" },
     { "source": "/(.*)", "destination": "/ScoreShield.html" }
-  ]
+  ],
+  "functions": {
+    "api/main.py": {
+      "runtime": "python3.11"
+    }
+  }
 }
