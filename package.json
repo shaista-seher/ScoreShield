@@ -1,17 +1,28 @@
 {
-  "dependencies": {
-    "@babel/standalone": "^7.29.1",
-    "playwright": "^1.58.2"
-  },
   "name": "scoreshield",
   "version": "1.0.0",
+  "private": true,
   "description": "ScoreShield is an AI-powered digital reputation scoring system designed for small online sellers on social media platforms like Instagram, WhatsApp, Facebook Marketplace, Meesho, Quikr, OLX, Telegram, and YouTube Live.",
-  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "start": "cd frontend && npm run start",
+    "install:all": "cd frontend && npm install"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "dependencies": {
+    "next": "14.0.4",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "^5",
+    "tailwindcss": "^3.3.0",
+    "autoprefixer": "^10.0.1",
+    "postcss": "^8",
+    "eslint": "^8",
+    "eslint-config-next": "14.0.4"
+  }
 }

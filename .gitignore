@@ -47,3 +47,5 @@ npm-debug.log*
 # Data files (optional - depends on size)
 data/*.csv
 sellers_data.json
+.vercel
+.env*.local
