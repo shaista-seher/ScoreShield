@@ -1,0 +1,17 @@
+{
+  "dependencies": {
+    "@babel/standalone": "^7.29.1",
+    "playwright": "^1.58.2"
+  },
+  "name": "scoreshield",
+  "version": "1.0.0",
+  "description": "ScoreShield is an AI-powered digital reputation scoring system designed for small online sellers on social media platforms like Instagram, WhatsApp, Facebook Marketplace, Meesho, Quikr, OLX, Telegram, and YouTube Live.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
